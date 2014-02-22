@@ -1,0 +1,94 @@
+#!/usr/bin/python
+## todo - CLI based todo manager
+## 
+## Supported commands:
+## todo
+## todo add
+## todo list
+## todo src
+##
+
+
+import sys
+import os
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+
+## List todos
+def todo_list():
+    f = open(source_file, 'r')
+    i = 0
+    for line in f:
+        words=line.split()
+        sys.stdout.write(bcolors.FAIL + "["+ str(i) + "] " + words[0] + " " + words [1] + bcolors.ENDC)
+        for j in range(len(words) - 2):
+            sys.stdout.write(" " + words[j + 2])
+    print ""
+    f.close()
+
+## Add a todo
+def todo_add():
+    f = open(source_file, 'a')
+    what= str(raw_input("What? : "))
+    extra=str(raw_input("Description: "))
+    f.write("_*** TODO "+ what)
+    f.write("\t"+ extra + "\n")
+    f.close()
+
+## Set / Change source
+def todo_src():
+    if len(sys.argv) < 3:
+        dst = os.getcwd() + "/.todo"
+        open(dst,'a').close
+        print "todo source: " + os.getcwd()
+    else:
+        dst = sys.argv[2]
+
+    if os.path.isfile(dst):
+        pass
+    elif os.path.isfile(os.getcwd() + dst):
+        dst = os.getcwd() + dst
+    else:
+        print "File " + dst + " does not exist."
+        exit
+
+    os.remove(source_file)
+    os.symlink(dst, source_file)
+
+## Interactive mode
+def todo_interactive():
+    print "TODO INTERACTIVE"
+
+def usage():
+    print "Usage: " + sys.argv[0] + " <action> <args>"
+
+def todo_check_args():
+    if len(sys.argv) < 2:
+        return "interactive"
+    return sys.argv[1]
+
+#################
+## def main(): ##
+#################
+source_file = "/tmp/.todo-this"
+
+action = todo_check_args()
+
+if action == "interactive":
+    todo_interactive()
+elif action == "add":
+    todo_add()
+elif action == "list":
+    todo_list()
+elif action == "src":
+    todo_src()
+else :
+    usage()
+
+
