@@ -11,6 +11,7 @@
 
 import sys
 import os
+from subprocess import call
 
 class bcolors:
     HEADER = '\033[95m'
@@ -20,31 +21,110 @@ class bcolors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
 
+def print_todo(todo):
+
+    if todo[0] == "TODO":
+        sys.stdout.write(bcolors.FAIL + "[ " + todo[1] + " ( " + todo[3].lstrip().rstrip() + " ) ]" + 
+                         " : " + todo[2] + bcolors.ENDC)
+    elif todo[0] == "DONE":
+        sys.stdout.write(bcolors.OKGREEN + "[ " + todo[1] + " ]" +
+                         bcolors.ENDC )
+    print ""
+
+def get_todo(f):
+    ## a todo is typically of this format:
+    ## *** TODO name_of_todo
+    ##     deadline: deadline
+    ##     description_of_todo
+    start = 0
+    todo = []
+    
+    while 1:
+        line = f.readline()
+
+        if "***" in line:
+            if start == 0:
+                start = 1
+            else:
+                f.seek(last_line, 0)
+                break
+        last_line = f.tell()
+        words=line.split()
+        if len(todo) == 0:
+            ## Look for "TODO" / "DONE"
+            if len(words) > 0 and words[0] == "***":
+                if len(words) > 1 and words[1] == "TODO":
+                    todo.append("TODO")
+                elif len(words) > 1 and words[1] == "DONE":
+                    todo.append("DONE")
+                else:
+                    todo.append("")
+        
+        if len(todo) == 1:
+            ## Look for name
+            if len(words) > 2:
+                todo.append(' '.join(words[2:]))
+            else:
+                todo.append("")
+        
+        if len(todo) == 2:
+            ## Look for deadline
+            if "deadline:" in line:
+                if len(words) > 1:
+                    todo.append(' '.join(words[1:]))
+                else:
+                    todo.append("")
+    
+        if len(todo) == 3:
+            ## Look for description
+            if "deadline" not in line:
+                todo.append(line.lstrip())
+        if f.tell() == os.fstat(f.fileno()).st_size:
+            break
+
+    return todo
+
 ## List todos
 def todo_list():
-    f = open(source_file, 'r')
-    i = 0
-    for line in f:
-        words=line.split()
-        sys.stdout.write(bcolors.FAIL + "["+ str(i) + "] " + words[0] + " " + words [1] + bcolors.ENDC)
-        for j in range(len(words) - 2):
-            sys.stdout.write(" " + words[j + 2])
-    print ""
+    f = open(source_file, 'rw+')
+    
+    todo = grep_get_todo(f)
+    while len(str(' '.join(todo))) > 0:
+        print_todo(todo)
+        todo = grep_get_todo(f)
     f.close()
+
+## Grep
+def grep_get_todo(f):
+    global options
+
+    if len(options[args.GREP]) > 0:
+        search = options[args.GREP]
+    else:
+        search = ""
+
+    todo = get_todo(f)
+    while len(str(' '.join(todo))) > 0:
+        if search.lstrip().rstrip().lower() in str(' '.join(todo)).lower():
+            return todo
+        todo = get_todo(f)
+
+    return []
 
 ## Add a todo
 def todo_add():
     f = open(source_file, 'a')
     what= str(raw_input("What? : "))
     extra=str(raw_input("Description: "))
-    f.write("_*** TODO "+ what)
-    f.write("\t"+ extra + "\n")
+    when=str(raw_input("When?: "))
+    f.write("*** TODO "+ what + "\n    :deadline: " + when)  
+    f.write("\n    "+ extra + "\n")
     f.close()
 
 ## Set / Change source
 def todo_src():
     if len(sys.argv) < 3:
-        dst = os.getcwd() + "/.todo"
+        dst = os.getcwd() + "/" + local_source
         open(dst,'a').close
         print "todo source: " + os.getcwd()
     else:
@@ -58,36 +138,152 @@ def todo_src():
         print "File " + dst + " does not exist."
         exit
 
-    os.remove(source_file)
+    if os.path.isfile(source_file):
+        os.remove(source_file)
     os.symlink(dst, source_file)
+
+def todo_mark():
+    i = 0
+    todos = []
+
+    f = open(source_file, 'rw+')
+
+    todo = get_todo(f)
+    while len(str(' '.join(todo))) > 0:
+        todos.append(todo)
+        i = i + 1
+        todo = get_todo(f)
+        
+    j = 0
+    todo_indices = []
+    k = 1
+    todo_indices.append(0)
+    while j < i:
+        if todos[j][0] == "TODO":
+            sys.stdout.write(str(k) + ". ")
+            print_todo(todos[j])
+            todo_indices.append(j)
+            k = k + 1
+        j = j + 1
+
+    x = raw_input("Which is done? ")
+    todos[int(todo_indices[int(x)])][0] = "DONE"
+    f.seek(0)
+    f.truncate()
+    j = 0
+    while j < i:
+        f.write("*** " + todos[j][0] + " " + todos[j][1] + "\n")
+        f.write("    :deadline: " + todos[j][2] + "\n")
+        f.write("   " + todos[j][3])
+        j = j + 1
+    
+    print "Marked DONE."
+    f.close()
 
 ## Interactive mode
 def todo_interactive():
-    print "TODO INTERACTIVE"
+    call(["emacsclient", "-nw", source_file])
 
 def usage():
     print "Usage: " + sys.argv[0] + " <action> <args>"
 
-def todo_check_args():
-    if len(sys.argv) < 2:
-        return "interactive"
-    return sys.argv[1]
+def todo_parse_args():
+    global options
+
+    options [args.LIST] = ""
+    options [args.GREP] = ""
+    options [args.ADD] = ""
+    options [args.SRC] = ""
+
+    current = ""
+    action = ""
+
+    try:
+        for i in range(len(sys.argv)):
+            str = sys.argv[i]
+
+            if str == "list":
+                current = "list"
+                if action != "" and action != "list":
+                    raise
+                action = "list"
+                continue
+
+            if str == "grep":
+                current = "grep"
+                action = "list"
+                continue
+                        
+            if str == "src":
+                current = "src"
+                if action != "":
+                    raise
+                action = "src"
+                continue
+        
+            if str == "add":
+                current = "add"
+                if action != "":
+                    raise
+                action = "add"
+                continue
+
+            if str == "mark":
+                current = "mark"
+                if action != "":
+                    raise
+                action = "mark"
+                continue
+
+            if current == "add":
+                options [args.ADD] += " " + str
+            if current == "list":
+                options [args.LIST] += " " + str
+            if current == "src":
+                options [args.SRC] += " " + str
+            if current == "grep":
+                options [args.GREP] += " " + str
+            if current == "mark":
+                options [args.MARK] += " " + str
+        
+    except:
+        print "Multiple actions not allowed"
+        exit()
+
+    if action == "":
+        action = "interactive"
+
+    return action
 
 #################
 ## def main(): ##
 #################
-source_file = "/tmp/.todo-this"
+class args:
+    LIST=0
+    GREP=1
+    ADD=2
+    SRC=3
+    MARK=4
 
-action = todo_check_args()
+
+source_file = "/tmp/.todo-this.org"
+local_source = ".todo.org"
+
+options=[None]*4
+action = todo_parse_args()
 
 if action == "interactive":
     todo_interactive()
 elif action == "add":
     todo_add()
 elif action == "list":
+    todo_list();
+elif action == "grep":
     todo_list()
 elif action == "src":
     todo_src()
+elif action == "mark":
+    todo_mark()
 else :
     usage()
 
