@@ -21,66 +21,101 @@ class bcolors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
 
+class todo_offset:
+    LEVEL=0
+    STATUS=1
+    PRIO=2
+    NAME=3
+    DESC=4
+    DEADLINE=5
+    
 def print_todo(todo):
-
-    if todo[0] == "TODO":
-        sys.stdout.write(bcolors.FAIL + "[ " + todo[1] + " ( " + todo[3].lstrip().rstrip() + " ) ]" + 
-                         " : " + todo[2] + bcolors.ENDC)
-    elif todo[0] == "DONE":
-        sys.stdout.write(bcolors.OKGREEN + "[ " + todo[1] + " ]" +
-                         bcolors.ENDC )
+    if todo[todo_offset.STATUS] == "TODO":
+        sys.stdout.write(" " + bcolors.FAIL +"( TODO ) " + todo[todo_offset.PRIO] +
+                         " " + bcolors.ENDC+ todo[todo_offset.NAME])
+        if len(todo[todo_offset.DESC].lstrip().rstrip()) > 0:
+            sys.stdout.write(" (" + todo[todo_offset.DESC].lstrip().rstrip() + ")")
+        if len(todo[todo_offset.DEADLINE].lstrip().rstrip()) > 0:
+            sys.stdout.write(bcolors.OKBLUE + " :" + 
+                             todo[todo_offset.DEADLINE].lstrip().rstrip() +
+                             ":" + bcolors.ENDC)
+    elif todo[todo_offset.STATUS] == "DONE":
+        sys.stdout.write(" " + bcolors.OKGREEN + "( DONE ) " + bcolors.ENDC +  todo[todo_offset.NAME])
+        if len(todo[5].lstrip().rstrip()) > 0:
+            sys.stdout.write(" (" + todo[todo_offset.DESC].lstrip().rstrip() + ")")
     print ""
 
 def get_todo(f):
     ## a todo is typically of this format:
-    ## *** TODO name_of_todo
+    ## * [#A] TODO name_of_todo
     ##     deadline: deadline
     ##     description_of_todo
     start = 0
-    todo = []
+    todo = [None] * 6
     
+    level=""
+    status=""
+    priority=""
+    name=""
+    deadline=""
+    description=""
+
     while 1:
         line = f.readline()
 
-        if "***" in line:
+        if line.startswith("*"):
             if start == 0:
                 start = 1
             else:
                 f.seek(last_line, 0)
                 break
         last_line = f.tell()
-        words=line.split()
-        if len(todo) == 0:
-            ## Look for "TODO" / "DONE"
-            if len(words) > 0 and words[0] == "***":
-                if len(words) > 1 and words[1] == "TODO":
-                    todo.append("TODO")
-                elif len(words) > 1 and words[1] == "DONE":
-                    todo.append("DONE")
-                else:
-                    todo.append("")
-        
-        if len(todo) == 1:
-            ## Look for name
-            if len(words) > 2:
-                todo.append(' '.join(words[2:]))
+        words = line.split()
+
+
+        if line.startswith("*") :
+            level = words[0].count("*")
+
+        looking_for = ""
+        for i in range(len(words)):
+
+            if line.startswith("*"):
+                ##
+                ## Special handling for first line
+                ## 
+                if words[i] == "[#A]" or words[i] == "[#B]" or words[i] == "[#C]":
+                    priority = words[i]
+                    continue
+                if (words[i] == "TODO" or words[i] == "DONE"):
+                    status = words[i]
+                    continue
+                if (len(words[i]) == words[i].count("*")):
+                    continue
+            
+
+            if words[i] == ":deadline:":
+                looking_for = "deadline"
+                continue
+
+            if looking_for == "deadline":
+                deadline = deadline + " " + words[i]
+                continue
+
+            if line.startswith("*"):
+                name = name + " " + words[i]
             else:
-                todo.append("")
-        
-        if len(todo) == 2:
-            ## Look for deadline
-            if "deadline:" in line:
-                if len(words) > 1:
-                    todo.append(' '.join(words[1:]))
-                else:
-                    todo.append("")
+                description = description + " " + words[i]
     
-        if len(todo) == 3:
-            ## Look for description
-            if "deadline" not in line:
-                todo.append(line.lstrip())
         if f.tell() == os.fstat(f.fileno()).st_size:
             break
+
+            todo
+    todo[todo_offset.LEVEL] = str(level).lstrip().rstrip()
+    todo[todo_offset.STATUS] = status.lstrip().rstrip()
+    todo[todo_offset.PRIO] = priority.lstrip().rstrip()
+    todo[todo_offset.NAME] = name.lstrip().rstrip()
+    todo[todo_offset.DESC] = description.lstrip().rstrip()
+    todo[todo_offset.DEADLINE] = deadline.lstrip().rstrip()
 
     return todo
 
@@ -88,11 +123,19 @@ def get_todo(f):
 def todo_list():
     f = open(source_file, 'rw+')
     
+    todos = []
+
     todo = grep_get_todo(f)
-    while len(str(' '.join(todo))) > 0:
-        print_todo(todo)
+    while len(str(' '.join(todo)).lstrip().rstrip()) > 0:
+        todos.append(todo)
         todo = grep_get_todo(f)
     f.close()
+
+    todos.sort(key = lambda todo: todo[todo_offset.PRIO])
+    todos.sort(key = lambda todo: todo[todo_offset.STATUS], reverse = True)
+
+    for i in range(len(todos)):
+        print_todo(todos[i])
 
 ## Grep
 def grep_get_todo(f):
@@ -104,12 +147,21 @@ def grep_get_todo(f):
         search = ""
 
     todo = get_todo(f)
-    while len(str(' '.join(todo))) > 0:
+    while len(str(' '.join(todo)).lstrip().rstrip()) > 0:
         if search.lstrip().rstrip().lower() in str(' '.join(todo)).lower():
             return todo
         todo = get_todo(f)
 
     return []
+
+def write_todo(f, todo):
+    for i in range(int(todo[todo_offset.LEVEL])):
+        f.write("*")
+
+    f.write(" " + todo[todo_offset.PRIO] + " " + todo[todo_offset.STATUS] +
+            " " + todo[todo_offset.NAME] + "\n")
+    f.write("\t:deadline: " + todo[todo_offset.DEADLINE] + "\n")
+    f.write("\t" + todo[todo_offset.DESC] + "\n")
 
 ## Add a todo
 def todo_add():
@@ -117,8 +169,21 @@ def todo_add():
     what= str(raw_input("What? : "))
     extra=str(raw_input("Description: "))
     when=str(raw_input("When?: "))
-    f.write("*** TODO "+ what + "\n    :deadline: " + when)  
-    f.write("\n    "+ extra + "\n")
+    priority=str(raw_input("Priority ([A]/B/C)?: "))
+    if priority == "":
+        priority = "A"
+
+    todo = [None] * 6
+
+    todo[todo_offset.LEVEL] = "1"
+    todo[todo_offset.STATUS] = "TODO"
+    todo[todo_offset.PRIO] = "[#" + priority.upper() + "]"
+    todo[todo_offset.NAME] = what
+    todo[todo_offset.DESC] = extra
+    todo[todo_offset.DEADLINE] = when
+
+    write_todo(f, todo)
+
     f.close()
 
 ## Set / Change source
@@ -149,7 +214,7 @@ def todo_mark():
     f = open(source_file, 'rw+')
 
     todo = get_todo(f)
-    while len(str(' '.join(todo))) > 0:
+    while len(str(' '.join(todo)).lstrip().rstrip()) > 0:
         todos.append(todo)
         i = i + 1
         todo = get_todo(f)
@@ -159,22 +224,24 @@ def todo_mark():
     k = 1
     todo_indices.append(0)
     while j < i:
-        if todos[j][0] == "TODO":
+        if todos[j][todo_offset.STATUS] == "TODO":
             sys.stdout.write(str(k) + ". ")
             print_todo(todos[j])
             todo_indices.append(j)
             k = k + 1
         j = j + 1
 
+    if k == 1:
+        print "Everything is DONE. Good work!"
+        exit()
+
     x = raw_input("Which is done? ")
-    todos[int(todo_indices[int(x)])][0] = "DONE"
+    todos[int(todo_indices[int(x)])][1] = "DONE"
     f.seek(0)
     f.truncate()
     j = 0
     while j < i:
-        f.write("*** " + todos[j][0] + " " + todos[j][1] + "\n")
-        f.write("    :deadline: " + todos[j][2] + "\n")
-        f.write("   " + todos[j][3])
+        write_todo(f, todos[j])
         j = j + 1
     
     print "Marked DONE."
@@ -198,6 +265,9 @@ def todo_parse_args():
     current = ""
     action = ""
 
+    if len(sys.argv) == 1:
+        return "interactive"
+
     try:
         for i in range(len(sys.argv)):
             str = sys.argv[i]
@@ -211,7 +281,6 @@ def todo_parse_args():
 
             if str == "grep":
                 current = "grep"
-                action = "list"
                 continue
                         
             if str == "src":
@@ -250,8 +319,6 @@ def todo_parse_args():
         print "Multiple actions not allowed"
         exit()
 
-    if action == "":
-        action = "interactive"
 
     return action
 
@@ -269,7 +336,7 @@ class args:
 source_file = "/tmp/.todo-this.org"
 local_source = ".todo.org"
 
-options=[None]*4
+options=[None]*5
 action = todo_parse_args()
 
 if action == "interactive":
